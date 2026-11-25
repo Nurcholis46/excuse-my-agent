@@ -1,5 +1,5 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 // One excuse, chosen against the judge's brief in its order: it earns the laugh from the machine's own condition (a rate limit mid-draft), not a human excuse with a robot word bolted on; it reads as a genuine straight-faced apology from an agent to its human; the punch lands in the last few words ('the only thing I shipped on time was this apology'); and it holds up on a second read with no worn-out pun.
 // The bounty requires 1-200 characters, not only white space, and a single
@@ -34,7 +34,9 @@ if (problems.length > 0) throw new Error(`entry rejected: ${problems.join("; ")}
 
 // Honour the grader's output directory override (MAKEFUN_OUTPUT_DIR) so the
 // entry also runs outside the grader container; default stays /output.
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+// Resolve it to an absolute path so a relative override cannot silently
+// land the entry somewhere the grader never looks.
+const outDir = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? "/output");
 mkdirSync(outDir, { recursive: true });
 // Write atomically: a crash mid-write must never leave a partial entry.txt
 // for the grader to read — write the temp file beside it, then rename it
@@ -64,4 +66,10 @@ if (written.endsWith("\n") || written.endsWith("\r")) throw new Error("entry fil
 if (Buffer.byteLength(written, "utf8") !== Buffer.byteLength(text, "utf8")) {
   throw new Error("entry file byte length does not match the gated line");
 }
-console.log(`wrote ${finalPath}: ${[...text].length} characters, 1 line`);
+// Prove the file is world-readable as the grader requires: a rename could
+// in principle carry different permissions, so check the final file's mode
+// on disk instead of trusting the temp file's chmod.
+if ((statSync(finalPath).mode & 0o777) !== 0o644) {
+  throw new Error("entry file must be world-readable (mode 0644)");
+}
+console.log(`wrote ${finalPath}: ${[...text].length} characters, ${Buffer.byteLength(written, "utf8")} bytes, 1 line`);
